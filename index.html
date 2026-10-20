@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Personal Portfolio & Inflation Tracker</title>
+    <link rel="stylesheet" href="static/pico.min.css">
+    <script src="static/htmx.js"></script>
+    <script>
+        // Automatically defaults the date picker to today if left empty
+        document.addEventListener("DOMContentLoaded", () => {
+            const dateInput = document.getElementById("trade_date_input");
+            if (dateInput && !dateInput.value) {
+                dateInput.value = new Date().toISOString().split('T')[0];
+            }
+        });
+    </script>
+    <style>
+        .htmx-indicator { display: none; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+        .positive { color: #2ecc71; font-weight: bold; }
+        .negative { color: #e74c3c; font-weight: bold; }
+        .muted { color: gray; }
+        td { vertical-align: middle; }
+        .badge-tax {
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            color: #fff;
+        }
+        .badge-ltcg { background-color: #1b4d3e; }
+        .badge-stcg { background-color: #4a3b1b; }
+    </style>
+</head>
+<body class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+
+<header>
+    <h2>Portfolio Dashboard</h2>
+    <p class="muted">Indian Markets (NSE & BSE) &bull; FIFO Accounting &bull; MoSPI CPI Real Returns</p>
+
+    <div>
+        <h2 style="margin-bottom: 0.25rem;">Portfolio Dashboard</h2>
+        <p class="muted" style="margin-bottom: 0;">Indian Markets (NSE & BSE) &bull; FIFO Accounting &bull; MoSPI CPI Real Returns</p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <!-- Loading spinner that displays only while fetching -->
+        <small id="refresh-spinner" class="htmx-indicator muted">
+            Fetching latest quotes...
+        </small>
+
+        <!-- Trigger Button -->
+        <button
+                class="outline"
+                hx-post="/api/prices/refresh-all"
+                hx-indicator="#refresh-spinner"
+                hx-disabled-elt="this"
+                style="margin: 0; padding: 0.4rem 0.9rem; font-size: 0.85rem; white-space: nowrap;">
+            🔄 Refresh All Prices
+        </button>
+    </div>
+
+</header>
+
+<!-- Summary Cards -->
+<div class="grid" style="margin-bottom: 2rem;">
+    <article>
+        <small class="muted">Total Invested (Open Lots)</small>
+        <h3>₹{{ printf "%.2f" .Summary.TotalInvested }}</h3>
+    </article>
+    <article>
+        <small class="muted">Current Market Value</small>
+        <h3>₹{{ printf "%.2f" .Summary.CurrentValue }}</h3>
+    </article>
+    <article>
+        <small class="muted">Nominal P&L</small>
+        <h3 class="{{ if ge .Summary.NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+            ₹{{ printf "%.2f" .Summary.NominalPnL }}
+        </h3>
+    </article>
+    <article>
+        <small class="muted">Real P&L (CPI Adjusted)</small>
+        <h3 class="{{ if ge .Summary.RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+            ₹{{ printf "%.2f" .Summary.RealPnL }}
+        </h3>
+    </article>
+</div>
+
+<!-- Actions Grid: Manual Add & Zerodha Import -->
+<div class="grid" style="margin-bottom: 2rem;">
+    <article>
+        <header><strong>Add Transaction</strong></header>
+        <form action="/api/transactions" method="POST">
+            <div class="grid">
+                <label>Symbol
+                    <input type="text" name="symbol" placeholder="e.g. RELIANCE.NS" required>
+                </label>
+                <label>Type
+                    <select name="type">
+                        <option value="BUY">BUY</option>
+                        <option value="SELL">SELL</option>
+                    </select>
+                </label>
+            </div>
+            <div class="grid">
+                <label>Date
+                    <input type="date" name="trade_date" required>
+                </label>
+                <label>Quantity
+                    <input type="number" step="any" name="quantity" required>
+                </label>
+                <label>Price (₹)
+                    <input type="number" step="any" name="price" required>
+                </label>
+            </div>
+            <label>Investment Thesis / Notes
+                <input type="text" name="notes" placeholder="Why did you buy/sell?">
+            </label>
+            <button type="submit">Record Trade</button>
+        </form>
+    </article>
+
+    <article>
+        <header><strong>Import Zerodha Kite Tradebook</strong></header>
+        <p><small class="muted">Upload your downloaded Tradebook CSV (Console &gt; Reports &gt; Tradebook).</small></p>
+        <form hx-post="/api/upload/zerodha" hx-encoding="multipart/form-data" hx-target="#import-status">
+            <input type="file" name="tradebook_csv" accept=".csv" required style="margin-bottom: 1rem;">
+            <button type="submit" class="secondary">Upload & Sync</button>
+        </form>
+        <div id="import-status" style="margin-top: 1rem;"></div>
+    </article>
+</div>
+
+<!-- Live Search Bar -->
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h3>Active Portfolio Holdings (FIFO Lots)</h3>
+        <small id="search-spinner" class="htmx-indicator muted">Searching...</small>
+    </div>
+
+    <input
+            type="search"
+            name="q"
+            placeholder="Type to filter by ticker symbol or notes..."
+            hx-get="/api/portfolio/search"
+            hx-trigger="input changed delay:300ms, search"
+            hx-target="#holdings-tbody"
+            hx-indicator="#search-spinner"
+            autocomplete="off"
+            style="margin-bottom: 1.5rem;"
+    />
+
+    <table role="grid">
+        <thead>
+        <tr>
+            <th>Symbol</th>
+            <th>Buy Date</th>
+            <th>Qty</th>
+            <th>Buy Price</th>
+            <th>Current Price</th>
+            <th>Nominal Gain</th>
+            <th>Real Gain (CPI)</th>
+            <th>Notes (Click to Edit)</th>
+        </tr>
+        </thead>
+        <tbody id="holdings-tbody">
+        {{ template "table_rows" .Lots }}
+        </tbody>
+    </table>
+</section>
+
+<!-- Realized P&L & Closed Trades -->
+<section style="margin-top: 3.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h3>Realized Profit & Loss (Closed Trades)</h3>
+        <small class="muted">FIFO Lot Matched &bull; Holding Duration &bull; STCG / LTCG Breakdown</small>
+    </div>
+
+    <!-- Realized Summary KPI Cards -->
+    <div class="grid" style="margin-bottom: 1.5rem;">
+        <article>
+            <small class="muted">Total Realized Gain</small>
+            <h4 class="{{ if ge .RealizedSummary.TotalRealizedNominal 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealizedSummary.TotalRealizedNominal }}
+            </h4>
+        </article>
+        <article>
+            <small class="muted">Real Gain (Inflation Adjusted)</small>
+            <h4 class="{{ if ge .RealizedSummary.TotalRealizedReal 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealizedSummary.TotalRealizedReal }}
+            </h4>
+        </article>
+        <article>
+            <small class="muted">Short Term (STCG &le; 1 yr)</small>
+            <h4 class="{{ if ge .RealizedSummary.TotalSTCG 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealizedSummary.TotalSTCG }}
+            </h4>
+        </article>
+        <article>
+            <small class="muted">Long Term (LTCG &gt; 1 yr)</small>
+            <h4 class="{{ if ge .RealizedSummary.TotalLTCG 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealizedSummary.TotalLTCG }}
+            </h4>
+        </article>
+    </div>
+
+    <!-- Closed Trades Table -->
+    <table role="grid">
+        <thead>
+        <tr>
+            <th>Symbol</th>
+            <th>Buy Date</th>
+            <th>Sell Date</th>
+            <th>Duration</th>
+            <th>Type</th>
+            <th>Qty</th>
+            <th>Buy Price</th>
+            <th>Sell Price</th>
+            <th>Realized P&L</th>
+            <th>CPI Real P&L</th>
+            <th>Notes</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ if .ClosedTrades }}
+        {{ range .ClosedTrades }}
+        <tr>
+            <td><strong>{{ .Symbol }}</strong></td>
+            <td>{{ .BuyDate }}</td>
+            <td>{{ .SellDate }}</td>
+            <td>{{ .HoldingDays }} days</td>
+            <td>
+                <span class="badge-tax {{ if eq .TaxType `LTCG` }}badge-ltcg{{ else }}badge-stcg{{ end }}">
+                {{ .TaxType }}
+                </span>
+            </td>
+            <td>{{ .Quantity }}</td>
+            <td>₹{{ printf "%.2f" .BuyPrice }}</td>
+            <td>₹{{ printf "%.2f" .SellPrice }}</td>
+            <td class="{{ if ge .NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .NominalPnL }}
+            </td>
+            <td class="{{ if ge .RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealPnL }}
+            </td>
+            <td><small>{{ .Notes }}</small></td>
+        </tr>
+        {{ end }}
+        {{ else }}
+        <tr>
+            <td colspan="11" style="text-align: center; color: gray; padding: 2rem;">
+                No closed positions yet. Sell transactions will appear here automatically.
+            </td>
+        </tr>
+        {{ end }}
+        </tbody>
+    </table>
+</section>
+
+<!-- Manual Price & CPI Overrides -->
+<section style="margin-top: 3rem;">
+    <details>
+        <summary>Manual Data Overrides (Price & CPI)</summary>
+        <div class="grid" style="margin-top: 1rem;">
+            <form action="/api/override-price" method="POST">
+                <label>Ticker Symbol
+                    <input type="text" name="symbol" placeholder="e.g. TCS.NS" required>
+                </label>
+                <label>Manual Close Price (₹)
+                    <input type="number" step="any" name="price" required>
+                </label>
+                <button type="submit" class="outline">Update Price</button>
+            </form>
+
+            <form action="/api/cpi" method="POST">
+                <label>Period (Month)
+                    <input type="month" name="period" required>
+                </label>
+                <label>MoSPI CPI Value
+                    <input type="number" step="any" name="index_val" required>
+                </label>
+                <button type="submit" class="outline">Save CPI</button>
+            </form>
+        </div>
+    </details>
+</section>
+
+</body>
+</html>
+
+{{ define "table_rows" }}
+{{ if . }}
+{{ range . }}
+<tr>
+    <td><strong>{{ .Symbol }}</strong></td>
+    <td>{{ .TradeDate }}</td>
+    <td>{{ .RemainingQty }}</td>
+    <td>₹{{ printf "%.2f" .BuyPrice }}</td>
+    <td>₹{{ printf "%.2f" .CurrentPrice }}</td>
+    <td class="{{ if ge .NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+        ₹{{ printf "%.2f" .NominalPnL }}
+    </td>
+    <td class="{{ if ge .RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+        ₹{{ printf "%.2f" .RealPnL }}
+    </td>
+
+    <!-- Inline Editable Cell -->
+    <td id="note-cell-{{ .TxID }}"
+        hx-get="/api/transactions/{{ .TxID }}/notes/edit"
+        hx-trigger="click"
+        hx-swap="outerHTML"
+        style="cursor: pointer;"
+        title="Click to edit notes">
+        {{ if .Notes }}
+        <small>{{ .Notes }}</small>
+        {{ else }}
+        <small class="muted" style="font-style: italic;">+ Add notes</small>
+        {{ end }}
+        <span style="font-size: 0.75rem; opacity: 0.5; margin-left: 4px;">✏️</span>
+    </td>
+</tr>
+{{ end }}
+{{ else }}
+<tr>
+    <td colspan="8" style="text-align: center; color: gray; padding: 2rem;">
+        No active holdings found. Record a trade or import a Kite tradebook above.
+    </td>
+</tr>
+{{ end }}
+{{ end }}

@@ -6,6 +6,7 @@
     <title>Personal Portfolio & Inflation Tracker</title>
     <link rel="stylesheet" href="static/pico.min.css">
     <script src="static/htmx.js"></script>
+    <script src="/static/chart.umd.min.js"></script>
     <script>
         // Automatically defaults the date picker to today if left empty
         document.addEventListener("DOMContentLoaded", () => {
@@ -30,14 +31,32 @@
         }
         .badge-ltcg { background-color: #1b4d3e; }
         .badge-stcg { background-color: #4a3b1b; }
+
+        .badge-exchange {
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-left: 6px;
+            letter-spacing: 0.5px;
+            vertical-align: middle;
+        }
+        .badge-nse {
+            background-color: #0b3b60;
+            color: #4fc3f7;
+            border: 1px solid #1976d2;
+        }
+        .badge-bse {
+            background-color: #3e2723;
+            color: #ffb74d;
+            border: 1px solid #f57c00;
+        }
     </style>
 </head>
 <body class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
 
 <header>
-    <h2>Portfolio Dashboard</h2>
-    <p class="muted">Indian Markets (NSE & BSE) &bull; FIFO Accounting &bull; MoSPI CPI Real Returns</p>
-
     <div>
         <h2 style="margin-bottom: 0.25rem;">Portfolio Dashboard</h2>
         <p class="muted" style="margin-bottom: 0;">Indian Markets (NSE & BSE) &bull; FIFO Accounting &bull; MoSPI CPI Real Returns</p>
@@ -62,6 +81,106 @@
 
 </header>
 
+<!-- Portfolio Growth Chart -->
+<article style="padding: 1.25rem; margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <strong style="font-size: 1.1rem;">Portfolio Trajectory</strong>
+        <small class="muted">Holdings Value vs. Total Invested (₹)</small>
+    </div>
+    <div style="position: relative; height: 260px; width: 100%;">
+        <canvas id="portfolioChart"></canvas>
+    </div>
+</article>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const ctx = document.getElementById('portfolioChart');
+        if (!ctx) return;
+
+        const labels = {{ .ChartLabelsJSON }};
+        const investedData = {{ .ChartInvestedJSON }};
+        const valueData = {{ .ChartValueJSON }};
+
+        if (!labels || labels.length === 0) return;
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Current Holdings Value (₹)',
+                        data: valueData,
+                        borderColor: '#2ecc71',
+                        backgroundColor: 'rgba(46, 204, 113, 0.12)',
+                        fill: true,
+                        tension: 0.25,
+                        borderWidth: 2.5,
+                        pointRadius: 3,
+                        pointHoverRadius: 6
+                    },
+                    {
+                        label: 'Total Invested (₹)',
+                        data: investedData,
+                        borderColor: '#3498db',
+                        backgroundColor: 'transparent',
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0.1,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        pointHoverRadius: 5
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            boxWidth: 14,
+                            color: '#a0a0a0',
+                            font: { size: 12 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ₹' + Number(context.parsed.y).toLocaleString('en-IN', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                });
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#888', font: { size: 11 }, maxTicksLimit: 8 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#888',
+                            font: { size: 11 },
+                            callback: function(value) {
+                                return '₹' + Number(value).toLocaleString('en-IN');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+
 <!-- Summary Cards -->
 <div class="grid" style="margin-bottom: 2rem;">
     <article>
@@ -84,87 +203,194 @@
             ₹{{ printf "%.2f" .Summary.RealPnL }}
         </h3>
     </article>
+    <article>
+        <small class="muted">Overall XIRR</small>
+        <h4 class="{{ if ge .Summary.OverallXIRR 0.0 }}positive{{ else }}negative{{ end }}" style="font-weight: 700;">
+            {{ printf "%.2f" .Summary.OverallXIRR }}%
+        </h4>
+    </article>
 </div>
 
 <!-- Actions Grid: Manual Add & Zerodha Import -->
-<div class="grid" style="margin-bottom: 2rem;">
-    <article>
-        <header><strong>Add Transaction</strong></header>
-        <form action="/api/transactions" method="POST">
-            <div class="grid">
-                <label>Symbol
-                    <input type="text" name="symbol" placeholder="e.g. RELIANCE.NS" required>
-                </label>
-                <label>Type
-                    <select name="type">
-                        <option value="BUY">BUY</option>
-                        <option value="SELL">SELL</option>
-                    </select>
-                </label>
-            </div>
-            <div class="grid">
-                <label>Date
-                    <input type="date" name="trade_date" required>
-                </label>
-                <label>Quantity
-                    <input type="number" step="any" name="quantity" required>
-                </label>
-                <label>Price (₹)
-                    <input type="number" step="any" name="price" required>
-                </label>
-            </div>
-            <label>Investment Thesis / Notes
-                <input type="text" name="notes" placeholder="Why did you buy/sell?">
-            </label>
-            <button type="submit">Record Trade</button>
-        </form>
-    </article>
+<!--<div class="grid" style="margin-bottom: 2rem;">-->
+<!--    <article>-->
+<!--        <header><strong>Add Transaction</strong></header>-->
+<!--        <form action="/api/transactions" method="POST">-->
+<!--            <div class="grid">-->
+<!--                <label>Symbol-->
+<!--                    <input type="text" name="symbol" placeholder="e.g. RELIANCE, INFY, 500325" required>-->
+<!--                </label>-->
+<!--                <label>Exchange-->
+<!--                    <select name="exchange">-->
+<!--                        <option value="NSE" selected>NSE</option>-->
+<!--                        <option value="BSE">BSE</option>-->
+<!--                    </select>-->
+<!--                </label>-->
+<!--                <label>Type-->
+<!--                    <select name="type">-->
+<!--                        <option value="BUY">BUY</option>-->
+<!--                        <option value="SELL">SELL</option>-->
+<!--                    </select>-->
+<!--                </label>-->
+<!--            </div>-->
+<!--            <div class="grid">-->
+<!--                <label>Date-->
+<!--                    <input type="date" name="trade_date" required>-->
+<!--                </label>-->
+<!--                <label>Quantity-->
+<!--                    <input type="number" step="any" name="quantity" required>-->
+<!--                </label>-->
+<!--                <label>Price (₹)-->
+<!--                    <input type="number" step="any" name="price" required>-->
+<!--                </label>-->
+<!--            </div>-->
+<!--            <label>Investment Thesis / Notes-->
+<!--                <input type="text" name="notes" placeholder="Why did you buy/sell?">-->
+<!--            </label>-->
+<!--            <button type="submit">Record Trade</button>-->
+<!--        </form>-->
+<!--    </article>-->
 
-    <article>
-        <header><strong>Import Zerodha Kite Tradebook</strong></header>
-        <p><small class="muted">Upload your downloaded Tradebook CSV (Console &gt; Reports &gt; Tradebook).</small></p>
-        <form hx-post="/api/upload/zerodha" hx-encoding="multipart/form-data" hx-target="#import-status">
-            <input type="file" name="tradebook_csv" accept=".csv" required style="margin-bottom: 1rem;">
-            <button type="submit" class="secondary">Upload & Sync</button>
-        </form>
-        <div id="import-status" style="margin-top: 1rem;"></div>
-    </article>
-</div>
+<!--    <article>-->
+<!--        <header><strong>Import Zerodha Kite Tradebook</strong></header>-->
+<!--        <p><small class="muted">Upload your downloaded Tradebook CSV (Console &gt; Reports &gt; Tradebook).</small></p>-->
+<!--        <form hx-post="/api/import-csv" hx-encoding="multipart/form-data" hx-target="#import-status">-->
+<!--            <input type="file" name="tradebook_csv" accept=".csv" required style="margin-bottom: 1rem;">-->
+<!--            <button type="submit" class="secondary">Upload & Sync</button>-->
+<!--        </form>-->
+<!--        <div id="import-status" style="margin-top: 1rem;"></div>-->
+<!--    </article>-->
+<!--</div>-->
 
-<!-- Live Search Bar -->
-<section>
+<!-- Table 1: Overall Holdings (Aggregated per Stock) -->
+<section style="margin-top: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: baseline;">
-        <h3>Active Portfolio Holdings (FIFO Lots)</h3>
-        <small id="search-spinner" class="htmx-indicator muted">Searching...</small>
+        <h3 style="margin-bottom: 0.5rem;">Overall Portfolio Holdings</h3>
+        <small class="muted">Aggregated Position &bull; Average Cost Basis &bull; XIRR%</small>
     </div>
-
-    <input
-            type="search"
-            name="q"
-            placeholder="Type to filter by ticker symbol or notes..."
-            hx-get="/api/portfolio/search"
-            hx-trigger="input changed delay:300ms, search"
-            hx-target="#holdings-tbody"
-            hx-indicator="#search-spinner"
-            autocomplete="off"
-            style="margin-bottom: 1.5rem;"
-    />
 
     <table role="grid">
         <thead>
         <tr>
-            <th>Symbol</th>
-            <th>Buy Date</th>
-            <th>Qty</th>
+            <th>Stock</th>
+            <th>Total Qty</th>
+            <th>Avg Buy Price</th>
+            <th>Current Price</th>
+            <th>Invested</th>
+            <th>Current Value</th>
+            <th>Nominal P&L</th>
+            <th>Real P&L (CPI)</th>
+            <th>XIRR%</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ if .Holdings }}
+        {{ range .Holdings }}
+        <tr>
+            <td>
+                <strong>{{ .CleanSymbol }}</strong>
+                <span class="badge-exchange {{ if eq .Exchange `BSE` }}badge-bse{{ else }}badge-nse{{ end }}">
+              {{ .Exchange }}
+            </span>
+            </td>
+            <td>{{ printf "%.2f" .TotalQty }}</td>
+            <td>₹{{ printf "%.2f" .AvgBuyPrice }}</td>
+            <td>₹{{ printf "%.2f" .CurrentPrice }}</td>
+            <td>₹{{ printf "%.2f" .InvestedValue }}</td>
+            <td>₹{{ printf "%.2f" .CurrentValue }}</td>
+            <td class="{{ if ge .NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .NominalPnL }}
+            </td>
+            <td class="{{ if ge .RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .RealPnL }}
+            </td>
+            <td class="{{ if ge .XIRR 0.0 }}positive{{ else }}negative{{ end }}" style="font-weight: 700;">
+                {{ printf "%.2f" .XIRR }}%
+            </td>
+        </tr>
+        {{ end }}
+        {{ else }}
+        <tr>
+            <td colspan="9" style="text-align: center; color: gray; padding: 2rem;">
+                No active holdings recorded yet.
+            </td>
+        </tr>
+        {{ end }}
+        </tbody>
+        <tfoot>
+        <tr style="font-weight: 700; border-top: 2px solid var(--pico-muted-border-color, #444); background: rgba(255, 255, 255, 0.03);">
+            <td colspan="4">Total</td>
+            <td>₹{{ printf "%.2f" .Summary.TotalInvested }}</td>
+            <td>₹{{ printf "%.2f" .Summary.CurrentValue }}</td>
+            <td class="{{ if ge .Summary.NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .Summary.NominalPnL }}
+            </td>
+            <td class="{{ if ge .Summary.RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .Summary.RealPnL }}
+            </td>
+            <td></td>
+        </tr>
+        </tfoot>
+    </table>
+</section>
+
+<!-- Table 2: Active Transactions & Open Lots -->
+<section style="margin-top: 3.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h3 style="margin-bottom: 0.5rem;">Transaction Lots</h3>
+        <small class="muted">Individual Buy Tranches &bull; Holding Duration &bull; Lot XIRR%</small>
+    </div>
+
+    <table role="grid">
+        <thead>
+        <tr>
+            <th>Stock</th>
+            <th>Trade Date</th>
+            <th>Qty Remaining</th>
             <th>Buy Price</th>
             <th>Current Price</th>
             <th>Nominal Gain</th>
-            <th>Real Gain (CPI)</th>
+            <th>Lot XIRR%</th>
             <th>Notes (Click to Edit)</th>
         </tr>
         </thead>
-        <tbody id="holdings-tbody">
-        {{ template "table_rows" .Lots }}
+        <tbody>
+        {{ if .Lots }}
+        {{ range .Lots }}
+        <tr>
+            <td>
+                <strong>{{ .CleanSymbol }}</strong>
+                <span class="badge-exchange {{ if eq .Exchange `BSE` }}badge-bse{{ else }}badge-nse{{ end }}">
+              {{ .Exchange }}
+            </span>
+            </td>
+            <td>{{ .TradeDate }}</td>
+            <td>{{ printf "%.2f" .RemainingQty }}</td>
+            <td>₹{{ printf "%.2f" .BuyPrice }}</td>
+            <td>₹{{ printf "%.2f" .CurrentPrice }}</td>
+            <td class="{{ if ge .NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+                ₹{{ printf "%.2f" .NominalPnL }}
+            </td>
+            <td class="{{ if ge .XIRR 0.0 }}positive{{ else }}negative{{ end }}" style="font-weight: 600;">
+                {{ printf "%.2f" .XIRR }}%
+            </td>
+            <td id="notes-cell-{{ .TxID }}"
+                hx-get="/api/notes/edit?id={{ .TxID }}&notes={{ .Notes }}"
+                hx-trigger="click"
+                hx-swap="outerHTML"
+                style="cursor: pointer;"
+                title="Click to edit notes">
+                <small>{{ if .Notes }}{{ .Notes }}{{ else }}<span style="opacity: 0.35;">Add note...</span>{{ end }}</small>
+            </td>
+        </tr>
+        {{ end }}
+        {{ else }}
+        <tr>
+            <td colspan="8" style="text-align: center; color: gray; padding: 2rem;">
+                No open transaction lots found.
+            </td>
+        </tr>
+        {{ end }}
         </tbody>
     </table>
 </section>
@@ -258,30 +484,131 @@
 </section>
 
 <!-- Manual Price & CPI Overrides -->
-<section style="margin-top: 3rem;">
+<!-- Unified Data Management & Admin Card -->
+<section style="margin-top: 3.5rem; margin-bottom: 4rem;">
     <details>
-        <summary>Manual Data Overrides (Price & CPI)</summary>
-        <div class="grid" style="margin-top: 1rem;">
-            <form action="/api/override-price" method="POST">
-                <label>Ticker Symbol
-                    <input type="text" name="symbol" placeholder="e.g. TCS.NS" required>
-                </label>
-                <label>Manual Close Price (₹)
-                    <input type="number" step="any" name="price" required>
-                </label>
-                <button type="submit" class="outline">Update Price</button>
-            </form>
+        <summary role="button" class="secondary outline" style="width: 100%; text-align: left;">
+            ⚙️ Portfolio Administration &amp; Data Management
+        </summary>
 
-            <form action="/api/cpi" method="POST">
-                <label>Period (Month)
-                    <input type="month" name="period" required>
-                </label>
-                <label>MoSPI CPI Value
-                    <input type="number" step="any" name="index_val" required>
-                </label>
-                <button type="submit" class="outline">Save CPI</button>
-            </form>
-        </div>
+        <article style="margin-top: 1rem; padding: 1.5rem;">
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+
+                <!-- 1. CSV Tradebook Import -->
+                <div>
+                    <h5 style="margin-bottom: 0.5rem;">📥 Import Zerodha Kite Tradebook</h5>
+                    <p style="margin-bottom: 1rem;">
+                        <small class="muted">Upload your official Tradebook CSV. Duplicate executions are filtered via <code>trade_id</code>.</small>
+                    </p>
+
+                    <form
+                            hx-post="/api/import-csv"
+                            hx-encoding="multipart/form-data"
+                            hx-target="#import-status"
+                            hx-indicator="#import-spinner"
+                    >
+                        <input
+                                type="file"
+                                name="tradebook_csv"
+                                accept=".csv"
+                                required
+                                style="margin-bottom: 0.75rem;"
+                        />
+                        <button type="submit" class="secondary" style="width: 100%;">
+                            Upload &amp; Sync Trades
+                        </button>
+                    </form>
+
+                    <div style="margin-top: 0.5rem; min-height: 24px;">
+                        <small id="import-spinner" class="htmx-indicator muted">Processing trades and fetching quotes...</small>
+                        <small id="import-status" style="font-weight: 600; color: #2ecc71;"></small>
+                    </div>
+                </div>
+
+                <!-- 2. Manual Price Override -->
+                <div>
+                    <h5 style="margin-bottom: 0.5rem;">🏷️ Manual Price Override</h5>
+                    <p style="margin-bottom: 1rem;">
+                        <small class="muted">Fix an unlisted, newly listed, or off-market price quote in SQLite.</small>
+                    </p>
+
+                    <form action="/api/override-price" method="POST">
+                        <div class="grid" style="grid-template-columns: 2fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+                            <input type="text" name="symbol" placeholder="Symbol (e.g. TCS)" required style="margin-bottom: 0;" />
+                            <select name="exchange" style="margin-bottom: 0;">
+                                <option value="NSE" selected>NSE</option>
+                                <option value="BSE">BSE</option>
+                            </select>
+                        </div>
+                        <input
+                                type="number"
+                                step="any"
+                                name="price"
+                                placeholder="Closing Price (₹)"
+                                required
+                                style="margin-bottom: 0.75rem;"
+                        />
+                        <button type="submit" class="outline secondary" style="width: 100%;">
+                            Save Custom Price
+                        </button>
+                    </form>
+                </div>
+
+            </div>
+
+            <hr style="margin: 1.5rem 0; border-color: var(--pico-muted-border-color, #333);" />
+
+            <!-- 3. CPI Inflation Index Reference -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+                    <h5 style="margin-bottom: 0;">📈 MoSPI Consumer Price Index (CPI) Reference</h5>
+                    <small class="muted">Base Year: 2012 = 100</small>
+                </div>
+                <p style="margin-bottom: 1rem;">
+                    <small class="muted">Historical index benchmarks used to compute real inflation-adjusted acquisition costs.</small>
+                </p>
+
+                <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--pico-muted-border-color, #333); border-radius: 4px; padding: 0 0.75rem;">
+                    <table role="grid" style="margin-bottom: 0; font-size: 0.85rem;">
+                        <thead>
+                        <tr>
+                            <th style="padding: 0.5rem;">Period (YYYY-MM)</th>
+                            <th style="padding: 0.5rem;">CPI Combined Index</th>
+                            <th style="padding: 0.5rem;">Status</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td style="padding: 0.4rem 0.5rem;">2023-01</td>
+                            <td style="padding: 0.4rem 0.5rem;">176.50</td>
+                            <td style="padding: 0.4rem 0.5rem;"><small class="muted">Final</small></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem 0.5rem;">2024-01</td>
+                            <td style="padding: 0.4rem 0.5rem;">186.20</td>
+                            <td style="padding: 0.4rem 0.5rem;"><small class="muted">Final</small></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem 0.5rem;">2025-01</td>
+                            <td style="padding: 0.4rem 0.5rem;">194.00</td>
+                            <td style="padding: 0.4rem 0.5rem;"><small class="muted">Final</small></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem 0.5rem;">2026-01</td>
+                            <td style="padding: 0.4rem 0.5rem;">199.20</td>
+                            <td style="padding: 0.4rem 0.5rem;"><small class="muted">Final</small></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.4rem 0.5rem;">2026-10</td>
+                            <td style="padding: 0.4rem 0.5rem;">202.50</td>
+                            <td style="padding: 0.4rem 0.5rem;"><small style="color: #4fc3f7;">Latest Benchmark</small></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </article>
     </details>
 </section>
 
@@ -292,7 +619,12 @@
 {{ if . }}
 {{ range . }}
 <tr>
-    <td><strong>{{ .Symbol }}</strong></td>
+    <td>
+        <strong>{{ .CleanSymbol }}</strong>
+        <span class="badge-exchange {{ if eq .Exchange `BSE` }}badge-bse{{ else }}badge-nse{{ end }}">
+    {{ .Exchange }}
+  </span>
+    </td>
     <td>{{ .TradeDate }}</td>
     <td>{{ .RemainingQty }}</td>
     <td>₹{{ printf "%.2f" .BuyPrice }}</td>
@@ -327,4 +659,22 @@
     </td>
 </tr>
 {{ end }}
+{{ end }}
+
+{{ define "table_tfoot" }}
+<tr style="font-weight: 700; border-top: 2px solid var(--pico-muted-border-color, #444); background: rgba(255, 255, 255, 0.03);">
+    <td colspan="5">
+        <strong>Total</strong>
+        <small class="muted" style="margin-left: 8px; font-weight: normal;">
+            (Invested: ₹{{ printf "%.2f" .TotalInvested }} &bull; Current: ₹{{ printf "%.2f" .CurrentValue }})
+        </small>
+    </td>
+    <td class="{{ if ge .NominalPnL 0.0 }}positive{{ else }}negative{{ end }}">
+        ₹{{ printf "%.2f" .NominalPnL }}
+    </td>
+    <td class="{{ if ge .RealPnL 0.0 }}positive{{ else }}negative{{ end }}">
+        ₹{{ printf "%.2f" .RealPnL }}
+    </td>
+    <td></td>
+</tr>
 {{ end }}
